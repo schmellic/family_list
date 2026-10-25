@@ -186,8 +186,8 @@ async function admin() {
     h('form', { class: 'buy-form', onsubmit: guard(async (e) => {
       e.preventDefault();
       const r = await api('POST', '/api/admin/invites', { email: emailIn.value });
-      const subject = `${me.display_name} invited you to our family wishlists`;
-      const body = `Hi,\n\nI've set up family wishlists so we can all see what everyone wants and avoid doubling up on presents. Create your account here (the link works once and expires in 7 days):\n\n${r.link}\n\nOnce you're in, add things you'd like, with links to where to buy them.\n\n${me.display_name}`;
+      const subject = `${me.display_name} invited you to the Schmellic Family Wishlists`;
+      const body = `Hi,\n\nI've set up the Schmellic Family Wishlists so we can all see what everyone wants and avoid doubling up on presents. Create your account here (the link works once and expires in 7 days):\n\n${r.link}\n\nOnce you're in, add things you'd like, with links to where to buy them.\n\n${me.display_name}`;
       const gmail = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(r.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       const link = h('input', { readOnly: true, value: r.link, 'aria-label': 'Invite link', onfocus: (ev) => ev.target.select() });
       result.replaceChildren(

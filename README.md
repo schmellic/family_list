@@ -1,4 +1,4 @@
-# Family Wishlists
+# Schmellic Family Wishlists
 
 Family members sign in and keep a wishlist of items with buy links. Anyone with the site URL can browse
 lists and mark items as bought. List owners never see which of their own items were bought.
