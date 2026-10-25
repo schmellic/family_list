@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
+const { fetchProductInfo } = require('./lookup');
 
 const PORT = process.env.PORT || 3000;
 const FAMILY_CODE = process.env.FAMILY_CODE || '';
@@ -308,6 +309,20 @@ route('DELETE', '/api/admin/invites/:id', (ctx) => {
   requireAdmin(ctx);
   db.prepare('DELETE FROM invites WHERE id = ?').run(ctx.params.id);
   return { ok: true };
+});
+
+// Pre-fills the add-item form from a shop link. Always answers 200 with whatever could be found.
+const lookups = new Map();
+route('POST', '/api/lookup', async (ctx) => {
+  const user = requireUser(ctx);
+  const rec = lookups.get(user.id) || { n: 0, reset: now() + 10 * 60e3 };
+  if (now() > rec.reset) { rec.n = 0; rec.reset = now() + 10 * 60e3; }
+  if (++rec.n > 40) throw fail(429, 'Too many lookups. Try again in a few minutes.');
+  lookups.set(user.id, rec);
+  const url = cleanUrl(ctx.body.url);
+  if (!url) throw fail(400, 'Link is required');
+  try { return await fetchProductInfo(url, { allowPrivate: !!process.env.LOOKUP_ALLOW_PRIVATE_FOR_TESTS }); }
+  catch (e) { console.log('Lookup failed for', new URL(url).hostname, '-', e.message); return {}; }
 });
 
 const itemFields = (b) => ({

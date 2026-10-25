@@ -67,8 +67,39 @@ async function home() {
 
 function itemForm(item, onDone) {
   const err = h('p', { class: 'error', hidden: true });
+  const status = h('p', { class: 'hint', 'aria-live': 'polite' });
+  const preview = h('div', { class: 'photo-preview' });
   const f = (name, label, props = {}) => h('label', {}, label, h(props.area ? 'textarea' : 'input', { name, value: item?.[name] || '', ...props }));
-  return h('form', { class: 'card', onsubmit: async (e) => {
+  const lookupBtn = h('button', { type: 'button', onclick: () => runLookup(true) }, 'Look up details');
+  let form;
+
+  const syncPreview = () => {
+    const src = form.elements.image_url.value.trim();
+    if (!src) return preview.replaceChildren();
+    const img = h('img', { class: 'thumb', src, alt: 'Photo preview', referrerPolicy: 'no-referrer' });
+    img.addEventListener('error', () => preview.replaceChildren(h('span', { class: 'hint' }, 'That photo link does not load. Fix or clear it.')));
+    preview.replaceChildren(img, h('button', { type: 'button', class: 'link', onclick: () => { form.elements.image_url.value = ''; syncPreview(); } }, 'Remove photo'));
+  };
+
+  // Auto lookup fills only empty fields; the button replaces them.
+  async function runLookup(replace) {
+    const url = form.elements.url.value.trim();
+    if (!url) { status.textContent = 'Paste the shop link first.'; return; }
+    status.textContent = 'Looking up the product...'; lookupBtn.disabled = true;
+    try {
+      const r = await api('POST', '/api/lookup', { url });
+      const filled = [];
+      for (const [field, label] of [['title', 'name'], ['image_url', 'photo'], ['price', 'price']]) {
+        if (r[field] && (replace || !form.elements[field].value.trim())) { form.elements[field].value = r[field]; filled.push(label); }
+      }
+      syncPreview();
+      status.textContent = filled.length ? `Filled in the ${filled.join(', ')}. Check it and change anything that looks wrong.`
+        : Object.keys(r).length ? 'Nothing new to fill in.' : 'Could not read details from that page. Please fill them in yourself.';
+    } catch (x) { status.textContent = x.message; }
+    finally { lookupBtn.disabled = false; }
+  }
+
+  form = h('form', { class: 'card', onsubmit: async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.target));
     try {
@@ -77,15 +108,21 @@ function itemForm(item, onDone) {
     } catch (x) { err.textContent = x.message; err.hidden = false; }
   } },
     h('h2', {}, item ? 'Edit wish' : 'Add a wish'),
+    h('div', { class: 'lookup-row' },
+      f('url', 'Link to buy it', { placeholder: 'Paste the shop link here', maxLength: 2000, onchange: () => { if (form.elements.url.value.trim()) runLookup(false); } }),
+      lookupBtn),
+    status,
     f('title', 'What is it?', { required: true, maxLength: 200 }),
-    f('url', 'Link to buy it', { placeholder: 'https://', maxLength: 2000 }),
-    h('div', {}, f('image_url', 'Photo link (optional)', { placeholder: 'https://', maxLength: 2000 }),
-      h('p', { class: 'hint' }, 'On the shop page, right-click the product photo and choose "Copy image address", then paste it here.')),
+    h('div', {}, f('image_url', 'Photo link (optional)', { placeholder: 'https://', maxLength: 2000, onchange: syncPreview }),
+      h('p', { class: 'hint' }, 'Filled in for you when possible. Otherwise right-click the product photo, choose "Copy image address" and paste it here.'),
+      preview),
     h('div', { class: 'two' }, f('price', 'Price (approx.)', { maxLength: 40 }), h('span')),
     f('notes', 'Size, colour, anything else', { area: true, maxLength: 1000 }),
     err,
     h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, item ? 'Save' : 'Add to list'),
       item && h('button', { type: 'button', onclick: onDone }, 'Cancel')));
+  syncPreview();
+  return form;
 }
 
 async function list(id) {

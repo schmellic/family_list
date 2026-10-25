@@ -159,3 +159,9 @@ textarea { min-height: 76px; resize: vertical; }
 .pick-grid.colors { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .swatch.c0 { background: var(--av0); } .swatch.c1 { background: var(--av1); } .swatch.c2 { background: var(--av2); }
 .swatch.c3 { background: var(--av3); } .swatch.c4 { background: var(--av4); } .swatch.c5 { background: var(--av5); }
+
+/* lookup */
+.lookup-row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+.lookup-row label { flex: 1 1 240px; }
+.photo-preview { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
+.photo-preview:empty { display: none; }

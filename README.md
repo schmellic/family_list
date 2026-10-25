@@ -34,3 +34,9 @@ Create the account on the site first, then promote it (the container must be run
     docker exec family-wishlist node make-admin.js <username>
 
 Admins get an **Admin** button showing every list and who bought what. Use `--remove` to demote.
+
+## Product lookup
+
+Pasting a shop link on the add/edit form fetches the page and pre-fills the name, photo and price. It is best effort:
+some shops block automated requests or hide prices behind scripts, in which case the fields stay empty to fill in by hand.
+The server refuses to fetch private or local network addresses, so it can not be used to probe your LAN.
