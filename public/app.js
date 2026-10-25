@@ -39,7 +39,15 @@ function renderNav() {
   ] : [h('a', { class: 'btn', href: '#/login' }, 'Family sign in')]).filter(Boolean));
 }
 
-const avatar = (p) => h('span', { class: `avatar c${p.id % 6}`, 'aria-hidden': 'true' }, (p.display_name || '?').trim().charAt(0).toUpperCase());
+function heart() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'heart'); svg.setAttribute('aria-hidden', 'true');
+  const p = document.createElementNS(ns, 'path');
+  p.setAttribute('d', 'M12 20.5s-8-4.6-8-10.4A4.6 4.6 0 0 1 12 7.3a4.6 4.6 0 0 1 8 2.8c0 5.8-8 10.4-8 10.4z');
+  svg.append(p); return svg;
+}
+const avatar = (p) => h('span', { class: `avatar c${p.avatar_color ?? p.id % 6}`, 'aria-hidden': 'true' }, p.avatar_emoji || (p.display_name || '?').trim().charAt(0).toUpperCase());
 
 // ---------- views ----------
 async function home() {
@@ -71,6 +79,8 @@ function itemForm(item, onDone) {
     h('h2', {}, item ? 'Edit wish' : 'Add a wish'),
     f('title', 'What is it?', { required: true, maxLength: 200 }),
     f('url', 'Link to buy it', { placeholder: 'https://', maxLength: 2000 }),
+    h('div', {}, f('image_url', 'Photo link (optional)', { placeholder: 'https://', maxLength: 2000 }),
+      h('p', { class: 'hint' }, 'On the shop page, right-click the product photo and choose "Copy image address", then paste it here.')),
     h('div', { class: 'two' }, f('price', 'Price (approx.)', { maxLength: 40 }), h('span')),
     f('notes', 'Size, colour, anything else', { area: true, maxLength: 1000 }),
     err,
@@ -84,31 +94,43 @@ async function list(id) {
   const render = () => {
     const cards = items.map((it) => editing === it.id ? itemForm(it, () => { editing = null; list(id); }) : itemCard(it));
     show(
-      h('div', {}, h('a', { class: 'back', href: '#/' }, '← Everyone'),
-        h('div', { class: 'heading' }, avatar(person), h('h1', {}, isOwner ? 'Your wishlist' : `${person.display_name}'s wishlist`)),
+      h('div', { class: 'hero' }, h('a', { class: 'back', href: '#/' }, 'Home / Wishlist'), h('div', { class: 'hero-avatar' }, avatar(person)),
+        h('h1', {}, isOwner ? 'My Wishlist' : `${person.display_name}'s Wishlist`),
+        isOwner && h('a', { href: '#/avatar' }, 'Change my avatar'),
         isOwner && h('p', { class: 'sub' }, 'Others can see this list and mark things bought. You will not see which ones, so gifts stay a surprise.')),
       isOwner && itemForm(null, () => list(id)),
-      cards.length ? h('ul', { class: 'items' }, cards.map((c) => h('li', {}, c)))
+      cards.length ? h('div', { class: 'items-wrap' }, !editing && h('div', { class: 'colhead', 'aria-hidden': 'true' }, h('span'), h('span', {}, 'Item'), h('span', {}, 'Price'), h('span', {}, 'Status')),
+        h('ul', { class: 'items' }, cards.map((c) => h('li', {}, c))))
         : h('div', { class: 'empty' }, isOwner ? 'Nothing here yet. Add your first wish above.' : `${person.display_name} has not added anything yet.`),
     );
   };
+  const thumb = (it) => {
+    const tile = h('span', { class: `thumb tile c${it.id % 6}`, 'aria-hidden': 'true' }, it.title.trim().charAt(0).toUpperCase());
+    if (!it.image_url) return tile;
+    const img = h('img', { class: 'thumb', src: it.image_url, alt: '', loading: 'lazy', referrerPolicy: 'no-referrer' });
+    img.addEventListener('error', () => img.replaceWith(tile));
+    return img;
+  };
+  const added = (t) => `Added ${new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`;
   const itemCard = (it) => {
     const bought = !isOwner && it.purchased;
-    return h('article', { class: 'item' + (bought ? ' bought' : '') },
-      h('h2', {}, it.title),
-      (it.price || it.url) && h('div', { class: 'meta' }, it.price && h('span', { class: 'price' }, it.price),
-        it.url && h('a', { class: 'shop', href: it.url, target: '_blank', rel: 'noopener noreferrer nofollow' }, 'View at ' + new URL(it.url).hostname.replace(/^www\./, '') + ' ↗')),
-      it.notes && h('p', { class: 'notes' }, it.notes),
-      isOwner ? h('div', { class: 'actions' },
-        h('button', { class: 'link', onclick: () => { editing = it.id; render(); } }, 'Edit'),
-        h('button', { class: 'link danger', onclick: guard(async (e) => {
-          if (e.target.dataset.sure !== '1') { e.target.dataset.sure = '1'; e.target.textContent = 'Tap again to delete'; return; }
-          await api('DELETE', `/api/items/${it.id}`); list(id);
-        }) }, 'Delete'))
-      : bought
-        ? h('div', { class: 'actions' }, h('span', { class: 'bought-by' }, `Bought by ${it.purchased.by}`),
-            h('button', { class: 'link', onclick: guard(async () => { await api('DELETE', `/api/items/${it.id}/purchase`); list(id); }) }, 'Undo'))
-        : buyForm(it));
+    return h('article', { class: 'item row-item' + (bought ? ' bought' : '') },
+      thumb(it),
+      h('div', { class: 'info' }, h('h2', {}, it.title),
+        it.url && h('a', { class: 'shop', href: it.url, target: '_blank', rel: 'noopener noreferrer nofollow' }, 'View at ' + new URL(it.url).hostname.replace(/^www\./, '') + ' ↗'),
+        it.notes && h('p', { class: 'notes' }, it.notes)),
+      h('div', { class: 'cost' }, it.price && h('span', { class: 'price' }, it.price)),
+      h('div', { class: 'act' }, h('span', { class: 'added' }, added(it.created_at)),
+        isOwner ? h('div', { class: 'actions' },
+          h('button', { class: 'link', onclick: () => { editing = it.id; render(); } }, 'Edit'),
+          h('button', { class: 'link danger', onclick: guard(async (e) => {
+            if (e.target.dataset.sure !== '1') { e.target.dataset.sure = '1'; e.target.textContent = 'Tap again to delete'; return; }
+            await api('DELETE', `/api/items/${it.id}`); list(id);
+          }) }, 'Delete'))
+        : bought
+          ? h('div', { class: 'actions' }, h('span', { class: 'bought-by' }, `Bought by ${it.purchased.by}`),
+              h('button', { class: 'link', onclick: guard(async () => { await api('DELETE', `/api/items/${it.id}/purchase`); list(id); }) }, 'Undo'))
+          : buyForm(it)));
   };
   const buyForm = (it) => {
     const name = h('input', { name: 'name', placeholder: me ? me.display_name : 'Your name (optional)', maxLength: 40, 'aria-label': 'Your name' });
@@ -127,6 +149,25 @@ function dangerBtn(label, confirmLabel, action) {
     if (e.target.dataset.sure !== '1') { e.target.dataset.sure = '1'; e.target.textContent = confirmLabel; return; }
     await action();
   }) }, label);
+}
+
+async function avatarView() {
+  if (!me) { location.hash = '#/login'; return; }
+  const [{ user }, { emojis, colors }] = await Promise.all([api('GET', '/api/me'), api('GET', '/api/avatar-options')]);
+  let emoji = user.avatar_emoji || '', color = user.avatar_color ?? user.id % 6;
+  const preview = h('div', { class: 'hero-avatar' });
+  const grid = h('div', { class: 'pick-grid', role: 'group', 'aria-label': 'Avatar' });
+  const swatches = h('div', { class: 'pick-grid colors', role: 'group', 'aria-label': 'Colour' });
+  const paint = () => {
+    preview.replaceChildren(avatar({ ...user, display_name: user.display_name, avatar_emoji: emoji, avatar_color: color }));
+    grid.replaceChildren(...['', ...emojis].map((e) => h('button', { type: 'button', class: 'pick' + (e === emoji ? ' on' : ''), 'aria-pressed': String(e === emoji), 'aria-label': e || 'My initial', onclick: () => { emoji = e; paint(); } }, e || user.display_name.trim().charAt(0).toUpperCase())));
+    swatches.replaceChildren(...Array.from({ length: colors }, (_, i) => h('button', { type: 'button', class: `pick swatch c${i}` + (i === color ? ' on' : ''), 'aria-pressed': String(i === color), 'aria-label': `Colour ${i + 1}`, onclick: () => { color = i; paint(); } })));
+  };
+  paint();
+  show(h('div', { class: 'auth' }, h('a', { class: 'back', href: `#/u/${user.id}` }, '← My list'), h('h1', {}, 'Your avatar'), preview,
+    h('form', { class: 'card', onsubmit: guard(async (e) => { e.preventDefault(); await api('PUT', '/api/me/avatar', { emoji, color }); toast('Avatar saved'); location.hash = `#/u/${user.id}`; }) },
+      h('h2', {}, 'Pick a picture'), grid, h('h2', {}, 'Pick a colour'), swatches,
+      h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, 'Save avatar')))));
 }
 
 async function admin() {
@@ -230,6 +271,7 @@ async function route() {
       const token = hash.slice(7);
       authView('register', { token, ...(await api('GET', `/api/invite/${encodeURIComponent(token)}`)) });
     }
+    else if (hash === '#/avatar') await avatarView();
     else if (hash === '#/admin') await admin();
     else if (hash === '#/login') authView('login');
     else if (hash === '#/register') authView('register');

@@ -53,6 +53,9 @@ db.exec(`
   );
 `);
 
+try { db.exec('ALTER TABLE items ADD COLUMN image_url TEXT'); } catch { /* already migrated */ }
+try { db.exec('ALTER TABLE users ADD COLUMN avatar_emoji TEXT'); } catch { /* already migrated */ }
+try { db.exec('ALTER TABLE users ADD COLUMN avatar_color INTEGER'); } catch { /* already migrated */ }
 try { db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0'); } catch { /* already migrated */ }
 
 // ---------- helpers ----------
@@ -89,7 +92,7 @@ function parseCookies(req) {
 function currentUser(req) {
   const token = parseCookies(req).session;
   if (!token) return null;
-  return db.prepare(`SELECT u.id, u.username, u.display_name, u.is_admin FROM sessions s
+  return db.prepare(`SELECT u.id, u.username, u.display_name, u.is_admin, u.avatar_emoji, u.avatar_color FROM sessions s
     JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?`).get(token, now()) || null;
 }
 function sessionCookie(token, maxAgeSec) {
@@ -121,12 +124,12 @@ const str = (v, max, label, required = false) => {
   if (s.length > max) throw fail(400, `${label} is too long (max ${max})`);
   return s;
 };
-function cleanUrl(v) {
-  const s = str(v, 2000, 'Link');
+function cleanUrl(v, label = 'Link') {
+  const s = str(v, 2000, label);
   if (!s) return null;
   let u;
-  try { u = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`); } catch { throw fail(400, 'That link does not look valid'); }
-  if (!['http:', 'https:'].includes(u.protocol)) throw fail(400, 'Link must start with http or https');
+  try { u = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`); } catch { throw fail(400, `That ${label.toLowerCase()} does not look valid`); }
+  if (!['http:', 'https:'].includes(u.protocol)) throw fail(400, `${label} must start with http or https`);
   return u.href;
 }
 
@@ -153,7 +156,7 @@ route('GET', '/api/me', ({ user }) => ({ user: user && { ...user, is_admin: !!us
 // Admin overview: every list with purchase details, including the admin's own.
 route('GET', '/api/admin/overview', (ctx) => {
   requireAdmin(ctx);
-  const people = db.prepare('SELECT id, display_name, username, is_admin FROM users ORDER BY display_name COLLATE NOCASE').all();
+  const people = db.prepare('SELECT id, display_name, username, is_admin, avatar_emoji, avatar_color FROM users ORDER BY display_name COLLATE NOCASE').all();
   const items = db.prepare(`SELECT i.id, i.user_id, i.title, i.url, i.price, p.purchased_by, p.purchased_at
     FROM items i LEFT JOIN purchases p ON p.item_id = i.id ORDER BY i.created_at DESC, i.id DESC`).all();
   return { people: people.map((p) => ({ ...p, is_admin: !!p.is_admin, items: items.filter((i) => i.user_id === p.id).map(({ user_id, ...it }) => it) })) };
@@ -203,23 +206,35 @@ route('POST', '/api/logout', (ctx) => {
   return { ok: true };
 });
 
+const AVATAR_EMOJIS = ['🐶','🐱','🦊','🐼','🐨','🦁','🐸','🐙','🦄','🐢','🦉','🐝','🌻','🌈','⭐','🎸','⚽','🚲','🎨','📚','🍕','🍰','☕','🌵'];
+route('GET', '/api/avatar-options', () => ({ emojis: AVATAR_EMOJIS, colors: 6 }));
+route('PUT', '/api/me/avatar', (ctx) => {
+  const user = requireUser(ctx);
+  const emoji = typeof ctx.body.emoji === 'string' ? ctx.body.emoji : '';
+  if (emoji && !AVATAR_EMOJIS.includes(emoji)) throw fail(400, 'Pick one of the avatars shown');
+  const color = Number(ctx.body.color);
+  if (!Number.isInteger(color) || color < 0 || color > 5) throw fail(400, 'Pick one of the colours shown');
+  db.prepare('UPDATE users SET avatar_emoji = ?, avatar_color = ? WHERE id = ?').run(emoji || null, color, user.id);
+  return { ok: true };
+});
+
 // Everyone can browse. Owners never see purchase info on their own list.
 route('GET', '/api/people', ({ user }) => {
-  const people = db.prepare(`SELECT u.id, u.display_name, COUNT(i.id) AS item_count,
+  const people = db.prepare(`SELECT u.id, u.display_name, u.avatar_emoji, u.avatar_color, COUNT(i.id) AS item_count,
       COUNT(p.item_id) AS bought_count
     FROM users u LEFT JOIN items i ON i.user_id = u.id LEFT JOIN purchases p ON p.item_id = i.id
     GROUP BY u.id ORDER BY u.display_name COLLATE NOCASE`).all();
   return { people: people.map((p) => ({
-    id: p.id, display_name: p.display_name, item_count: p.item_count,
+    id: p.id, display_name: p.display_name, avatar_emoji: p.avatar_emoji, avatar_color: p.avatar_color, item_count: p.item_count,
     remaining: user?.id === p.id ? null : p.item_count - p.bought_count,
   })) };
 });
 
 route('GET', '/api/people/:id', ({ user, params }) => {
-  const person = db.prepare('SELECT id, display_name FROM users WHERE id = ?').get(params.id);
+  const person = db.prepare('SELECT id, display_name, avatar_emoji, avatar_color FROM users WHERE id = ?').get(params.id);
   if (!person) throw fail(404, 'No such person');
   const isOwner = user?.id === person.id;
-  const items = db.prepare(`SELECT i.id, i.title, i.url, i.price, i.notes, p.purchased_by, p.purchased_at
+  const items = db.prepare(`SELECT i.id, i.title, i.url, i.image_url, i.price, i.notes, i.created_at, p.purchased_by, p.purchased_at
     FROM items i LEFT JOIN purchases p ON p.item_id = i.id
     WHERE i.user_id = ? ORDER BY i.created_at DESC, i.id DESC`).all(person.id);
   return {
@@ -298,6 +313,7 @@ route('DELETE', '/api/admin/invites/:id', (ctx) => {
 const itemFields = (b) => ({
   title: str(b.title, 200, 'Item name', true),
   url: cleanUrl(b.url),
+  image_url: cleanUrl(b.image_url, 'Image link'),
   price: str(b.price, 40, 'Price') || null,
   notes: str(b.notes, 1000, 'Notes') || null,
 });
@@ -305,8 +321,8 @@ const itemFields = (b) => ({
 route('POST', '/api/items', (ctx) => {
   const user = requireUser(ctx);
   const f = itemFields(ctx.body);
-  const { lastInsertRowid } = db.prepare('INSERT INTO items (user_id, title, url, price, notes, created_at) VALUES (?,?,?,?,?,?)')
-    .run(user.id, f.title, f.url, f.price, f.notes, now());
+  const { lastInsertRowid } = db.prepare('INSERT INTO items (user_id, title, url, image_url, price, notes, created_at) VALUES (?,?,?,?,?,?,?)')
+    .run(user.id, f.title, f.url, f.image_url, f.price, f.notes, now());
   ctx.status = 201;
   return { id: Number(lastInsertRowid) };
 });
@@ -314,8 +330,8 @@ route('POST', '/api/items', (ctx) => {
 route('PUT', '/api/items/:id', (ctx) => {
   const user = requireUser(ctx);
   const f = itemFields(ctx.body);
-  const r = db.prepare('UPDATE items SET title=?, url=?, price=?, notes=? WHERE id=? AND user_id=?')
-    .run(f.title, f.url, f.price, f.notes, ctx.params.id, user.id);
+  const r = db.prepare('UPDATE items SET title=?, url=?, image_url=?, price=?, notes=? WHERE id=? AND user_id=?')
+    .run(f.title, f.url, f.image_url, f.price, f.notes, ctx.params.id, user.id);
   if (!r.changes) throw fail(404, 'Item not found');
   return { ok: true };
 });
@@ -351,7 +367,7 @@ route('DELETE', '/api/items/:id/purchase', (ctx) => {
 const PUBLIC = path.join(__dirname, 'public');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
 const SEC = {
-  'Content-Security-Policy': "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; frame-ancestors 'none'",
+  'Content-Security-Policy': "default-src 'self'; style-src 'self' https://fonts.googleapis.com; img-src 'self' https:; font-src https://fonts.gstatic.com; frame-ancestors 'none'",
   'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin',
 };
 
