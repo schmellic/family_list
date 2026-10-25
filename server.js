@@ -10,10 +10,8 @@ const FAMILY_CODE = process.env.FAMILY_CODE || '';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'wishlist.db');
 const SESSION_DAYS = 30;
 
-if (!FAMILY_CODE) {
-  console.error('Set FAMILY_CODE to the invite code family members need to create an account.');
-  process.exit(1);
-}
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+if (!FAMILY_CODE) console.log('FAMILY_CODE is empty: accounts can only be created from admin invite links.');
 
 const db = new DatabaseSync(DB_PATH);
 db.exec(`
@@ -39,6 +37,14 @@ db.exec(`
     price TEXT,
     notes TEXT,
     created_at INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS invites (
+    id INTEGER PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER
   );
   CREATE TABLE IF NOT EXISTS purchases (
     item_id INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
@@ -153,10 +159,23 @@ route('GET', '/api/admin/overview', (ctx) => {
   return { people: people.map((p) => ({ ...p, is_admin: !!p.is_admin, items: items.filter((i) => i.user_id === p.id).map(({ user_id, ...it }) => it) })) };
 });
 
+const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+const findInvite = (token) => typeof token === 'string' && token
+  ? db.prepare('SELECT id, email FROM invites WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?').get(sha(token), now())
+  : null;
+
+route('GET', '/api/invite/:token', ({ params }) => {
+  const inv = findInvite(params.token);
+  if (!inv) throw fail(404, 'This invite link is not valid any more. Ask for a new one.');
+  return { email: inv.email };
+});
+
 route('POST', '/api/register', async (ctx) => {
   throttle(ctx.req);
   const b = ctx.body;
-  if (!safeEqual(String(b.code || ''), FAMILY_CODE)) throw fail(403, 'That family code is not right');
+  const invite = b.invite ? findInvite(b.invite) : null;
+  if (b.invite && !invite) throw fail(403, 'This invite link is not valid any more. Ask for a new one.');
+  if (!invite && !(FAMILY_CODE && safeEqual(String(b.code || ''), FAMILY_CODE))) throw fail(403, 'That family code is not right');
   const username = str(b.username, 30, 'Username', true);
   if (!/^[A-Za-z0-9_.-]+$/.test(username)) throw fail(400, 'Username can use letters, numbers, dot, dash and underscore');
   const display = str(b.displayName, 40, 'Name', true);
@@ -165,7 +184,8 @@ route('POST', '/api/register', async (ctx) => {
   if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) throw fail(409, 'That username is taken');
   const { lastInsertRowid } = db.prepare('INSERT INTO users (username, display_name, pass_hash, created_at) VALUES (?,?,?,?)')
     .run(username, display, hashPassword(pw), now());
-  ctx.startSession(Number(lastInsertRowid), 201, { user: { id: Number(lastInsertRowid), username, display_name: display } });
+  if (invite) db.prepare('UPDATE invites SET used_at = ? WHERE id = ?').run(now(), invite.id);
+  ctx.startSession(Number(lastInsertRowid), 201, { user: { id: Number(lastInsertRowid), username, display_name: display, is_admin: false } });
 });
 
 route('POST', '/api/login', async (ctx) => {
@@ -247,6 +267,31 @@ route('DELETE', '/api/admin/items/:id', (ctx) => {
 route('DELETE', '/api/admin/items/:id/purchase', (ctx) => {
   requireAdmin(ctx);
   db.prepare('DELETE FROM purchases WHERE item_id = ?').run(ctx.params.id);
+  return { ok: true };
+});
+
+// Invites: single-use links, valid 7 days. The admin sends them from their own email.
+route('POST', '/api/admin/invites', async (ctx) => {
+  requireAdmin(ctx);
+  const email = str(ctx.body.email, 200, 'Email', true);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw fail(400, 'That email address does not look right');
+  const token = crypto.randomBytes(24).toString('base64url');
+  db.prepare('INSERT INTO invites (token_hash, email, created_at, expires_at) VALUES (?,?,?,?)')
+    .run(sha(token), email, now(), now() + 7 * 864e5);
+  const base = PUBLIC_URL || `${ctx.req.headers['x-forwarded-proto'] || 'http'}://${ctx.req.headers.host}`;
+  const link = `${base}/#/join/${token}`;
+  ctx.status = 201;
+  return { link, email };
+});
+
+route('GET', '/api/admin/invites', (ctx) => {
+  requireAdmin(ctx);
+  return { invites: db.prepare('SELECT id, email, created_at, expires_at FROM invites WHERE used_at IS NULL AND expires_at > ? ORDER BY created_at DESC').all(now()) };
+});
+
+route('DELETE', '/api/admin/invites/:id', (ctx) => {
+  requireAdmin(ctx);
+  db.prepare('DELETE FROM invites WHERE id = ?').run(ctx.params.id);
   return { ok: true };
 });
 

@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "Family wishlists with public browsing and purchase marking",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=22.13" }
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
 }

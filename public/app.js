@@ -28,7 +28,7 @@ function toast(msg) {
   t.textContent = msg; t.hidden = false;
   clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2800);
 }
-const show = (...nodes) => app.replaceChildren(...nodes);
+const show = (...nodes) => app.replaceChildren(...nodes.filter(Boolean));
 const guard = (fn) => async (e) => { try { await fn(e); } catch (err) { toast(err.message); } };
 
 function renderNav() {
@@ -39,6 +39,8 @@ function renderNav() {
   ] : [h('a', { class: 'btn', href: '#/login' }, 'Family sign in')]).filter(Boolean));
 }
 
+const avatar = (p) => h('span', { class: `avatar c${p.id % 6}`, 'aria-hidden': 'true' }, (p.display_name || '?').trim().charAt(0).toUpperCase());
+
 // ---------- views ----------
 async function home() {
   const { people } = await api('GET', '/api/people');
@@ -47,8 +49,10 @@ async function home() {
       h('p', { class: 'sub' }, 'Pick a person, open a link, and mark it bought so nobody doubles up.')),
     people.length
       ? h('ul', { class: 'people' }, people.map((p) => h('li', {}, h('a', { href: `#/u/${p.id}` },
-          h('span', { class: 'name' }, p.display_name),
-          h('span', { class: 'pill' }, p.remaining == null ? `${p.item_count} ${p.item_count === 1 ? 'wish' : 'wishes'}` : `${p.remaining} of ${p.item_count} still wanted`)))))
+          avatar(p),
+          h('span', { class: 'who' }, h('span', { class: 'name' }, p.display_name),
+            h('span', { class: 'count' }, `${p.item_count} ${p.item_count === 1 ? 'wish' : 'wishes'}`)),
+          p.remaining == null ? h('span', { class: 'pill' }, 'You') : p.item_count ? h('span', { class: p.remaining ? 'pill gold' : 'pill' }, p.remaining ? `${p.remaining} to buy` : 'All bought') : null))))
       : h('div', { class: 'empty' }, 'No lists yet. A family member can sign up to start one.'),
   );
 }
@@ -80,7 +84,8 @@ async function list(id) {
   const render = () => {
     const cards = items.map((it) => editing === it.id ? itemForm(it, () => { editing = null; list(id); }) : itemCard(it));
     show(
-      h('div', {}, h('a', { href: '#/' }, '← Everyone'), h('h1', {}, isOwner ? 'Your wishlist' : `${person.display_name}'s wishlist`),
+      h('div', {}, h('a', { class: 'back', href: '#/' }, '← Everyone'),
+        h('div', { class: 'heading' }, avatar(person), h('h1', {}, isOwner ? 'Your wishlist' : `${person.display_name}'s wishlist`)),
         isOwner && h('p', { class: 'sub' }, 'Others can see this list and mark things bought. You will not see which ones, so gifts stay a surprise.')),
       isOwner && itemForm(null, () => list(id)),
       cards.length ? h('ul', { class: 'items' }, cards.map((c) => h('li', {}, c)))
@@ -91,8 +96,8 @@ async function list(id) {
     const bought = !isOwner && it.purchased;
     return h('article', { class: 'item' + (bought ? ' bought' : '') },
       h('h2', {}, it.title),
-      (it.price || it.url) && h('div', { class: 'meta' }, it.price && h('span', {}, it.price),
-        it.url && h('a', { href: it.url, target: '_blank', rel: 'noopener noreferrer nofollow' }, new URL(it.url).hostname.replace(/^www\./, '') + ' ↗')),
+      (it.price || it.url) && h('div', { class: 'meta' }, it.price && h('span', { class: 'price' }, it.price),
+        it.url && h('a', { class: 'shop', href: it.url, target: '_blank', rel: 'noopener noreferrer nofollow' }, 'View at ' + new URL(it.url).hostname.replace(/^www\./, '') + ' ↗')),
       it.notes && h('p', { class: 'notes' }, it.notes),
       isOwner ? h('div', { class: 'actions' },
         h('button', { class: 'link', onclick: () => { editing = it.id; render(); } }, 'Edit'),
@@ -130,6 +135,32 @@ async function admin() {
   const bought = people.reduce((n, p) => n + p.items.filter((i) => i.purchased_by).length, 0);
   const fmt = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   const act = (fn, msg) => guard(async () => { await fn(); toast(msg); admin(); });
+  const { invites } = await api('GET', '/api/admin/invites');
+  const result = h('div', { class: 'invite-result', hidden: true });
+  const emailIn = h('input', { id: 'invite-email', type: 'email', required: true, placeholder: 'name@example.com', 'aria-label': 'Email address to invite' });
+  const copy = async (text, input) => { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { input.select(); toast('Press Ctrl+C to copy'); } };
+  const inviteBox = h('section', { class: 'admin-person' },
+    h('h2', {}, 'Invite someone'),
+    h('p', { class: 'hint' }, 'Enter their email and I will draft a message in Gmail for you to send. The link works once and expires in 7 days.'),
+    h('form', { class: 'buy-form', onsubmit: guard(async (e) => {
+      e.preventDefault();
+      const r = await api('POST', '/api/admin/invites', { email: emailIn.value });
+      const subject = `${me.display_name} invited you to our family wishlists`;
+      const body = `Hi,\n\nI've set up family wishlists so we can all see what everyone wants and avoid doubling up on presents. Create your account here (the link works once and expires in 7 days):\n\n${r.link}\n\nOnce you're in, add things you'd like, with links to where to buy them.\n\n${me.display_name}`;
+      const gmail = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(r.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      const link = h('input', { readOnly: true, value: r.link, 'aria-label': 'Invite link', onfocus: (ev) => ev.target.select() });
+      result.replaceChildren(
+        h('p', { class: 'hint' }, `Invite created for ${r.email}. Nothing has been sent yet.`),
+        h('div', { class: 'actions' },
+          h('a', { class: 'btn primary', href: gmail, target: '_blank', rel: 'noopener noreferrer' }, 'Open draft in Gmail'),
+          h('button', { type: 'button', onclick: () => copy(body, link) }, 'Copy message')),
+        h('div', { class: 'buy-form' }, link, h('button', { type: 'button', onclick: () => copy(r.link, link) }, 'Copy link')));
+      result.hidden = false; emailIn.value = '';
+    }) }, emailIn, h('button', { class: 'primary', type: 'submit' }, 'Create invite')),
+    result,
+    invites.length ? h('div', { class: 'pending' }, h('p', { class: 'hint' }, 'Waiting to be used:'),
+      h('ul', { class: 'items' }, invites.map((i) => h('li', { class: 'row' }, h('span', {}, `${i.email} (expires ${fmt(i.expires_at)})`),
+        h('button', { class: 'link danger', onclick: act(() => api('DELETE', `/api/admin/invites/${i.id}`), 'Invite cancelled') }, 'Cancel'))))) : null);
   const pwBox = (p) => {
     const input = h('input', { type: 'password', minLength: 8, placeholder: 'New password (8+ characters)', 'aria-label': `New password for ${p.display_name}` });
     return h('form', { class: 'buy-form', onsubmit: act(async (e) => { e.preventDefault(); await api('POST', `/api/admin/users/${p.id}/password`, { password: input.value }); }, 'Password changed') },
@@ -159,32 +190,35 @@ async function admin() {
         : h('div', { class: 'empty' }, 'No wishes yet.'));
   };
   show(
-    h('div', {}, h('a', { href: '#/' }, '← Everyone'), h('h1', {}, 'Admin'),
+    h('div', {}, h('a', { class: 'back', href: '#/' }, '← Everyone'), h('h1', {}, 'Admin'),
       h('p', { class: 'sub' }, `${people.length} people, ${total} wishes, ${bought} bought. This shows purchases on every list, including yours, so avoid scrolling past your own if you want a surprise.`)),
+    inviteBox,
     ...people.map(personBlock));
 }
 
-function authView(mode) {
+function authView(mode, invite) {
   const err = h('p', { class: 'error', hidden: true });
   const reg = mode === 'register';
+  const inviteEmail = invite && invite.email;
   const field = (name, label, props = {}) => h('label', {}, label, h('input', { name, required: true, ...props }));
-  show(
+  show(h('div', { class: 'auth' },
     h('h1', {}, reg ? 'Join the family' : 'Family sign in'),
+    inviteEmail && h('p', { class: 'sub' }, `You were invited as ${inviteEmail}. Choose a username and password.`),
     h('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault();
       try {
-        ({ user: me } = await api('POST', reg ? '/api/register' : '/api/login', Object.fromEntries(new FormData(e.target))));
+        ({ user: me } = await api('POST', reg ? '/api/register' : '/api/login', { ...Object.fromEntries(new FormData(e.target)), invite: invite && invite.token }));
         renderNav(); location.hash = `#/u/${me.id}`;
       } catch (x) { err.textContent = x.message; err.hidden = false; }
     } },
-      reg && field('code', 'Family code', { autocomplete: 'off' }),
+      reg && !invite && field('code', 'Family code', { autocomplete: 'off' }),
       reg && field('displayName', 'Your name', { maxLength: 40, autocomplete: 'name' }),
       field('username', 'Username', { autocomplete: 'username', maxLength: 30 }),
       field('password', 'Password', { type: 'password', minLength: reg ? 8 : 1, autocomplete: reg ? 'new-password' : 'current-password' }),
-      reg && h('p', { class: 'hint' }, 'At least 8 characters. Ask a family member for the code.'),
+      reg && h('p', { class: 'hint' }, invite ? 'At least 8 characters.' : 'At least 8 characters. Ask a family member for the code or an invite link.'),
       err,
       h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, reg ? 'Create account' : 'Sign in'),
-        h('a', { href: reg ? '#/login' : '#/register' }, reg ? 'I already have an account' : 'Create an account'))));
+        h('a', { href: reg ? '#/login' : '#/register' }, reg ? 'I already have an account' : 'Create an account')))));
 }
 
 // ---------- router ----------
@@ -192,6 +226,10 @@ async function route() {
   const hash = location.hash || '#/';
   try {
     if (hash.startsWith('#/u/')) await list(hash.slice(4));
+    else if (hash.startsWith('#/join/')) {
+      const token = hash.slice(7);
+      authView('register', { token, ...(await api('GET', `/api/invite/${encodeURIComponent(token)}`)) });
+    }
     else if (hash === '#/admin') await admin();
     else if (hash === '#/login') authView('login');
     else if (hash === '#/register') authView('register');
