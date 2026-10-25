@@ -168,6 +168,30 @@ function titleFromUrl(rawUrl) {
   } catch { return ''; }
 }
 
+// Amazon pages carry the real product in the markup, while og tags are generic or missing.
+// Prices are skipped on purpose: the page mixes in carousel prices for other products.
+function amazonProduct(html) {
+  const out = {};
+  const t = (html.match(/id=["']productTitle["'][^>]*>([\s\S]*?)<\/span>/i) || [])[1];
+  if (t) out.title = clean(t.replace(/<[^>]+>/g, ''), 200);
+  const hi = (html.match(/"hiRes"\s*:\s*"(https:[^"]+)"/) || [])[1];
+  let img = hi;
+  if (!img) {
+    const tag = (html.match(/<img[^>]+id=["']landingImage["'][^>]*>/i) || [])[0];
+    const a = tag ? attrs(tag) : {};
+    img = a['data-old-hires'];
+    if (!img && a['data-a-dynamic-image']) {
+      try {
+        const sizes = JSON.parse(decode(a['data-a-dynamic-image']));
+        img = Object.keys(sizes).sort((x, y) => sizes[y][0] - sizes[x][0])[0];
+      } catch { /* ignore */ }
+    }
+  }
+  if (img && /^https:\/\/[\w.-]*(media-amazon|ssl-images-amazon)\.com\//.test(img)) out.image_url = img;
+  return out;
+}
+const isAmazon = (u) => { try { return /(^|\.)(amazon\.[a-z.]+|amzn\.[a-z]+)$/i.test(new URL(u).hostname); } catch { return false; } };
+
 function parseProduct(html, baseUrl) {
   const meta = metaMap(html);
   const products = jsonLdProducts(html);
@@ -177,6 +201,8 @@ function parseProduct(html, baseUrl) {
 
   let title = clean(ld.name || meta['og:title'] || meta['twitter:title'] || (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1], 200);
   if (isJunkTitle(title, baseUrl)) title = '';
+  const amazon = isAmazon(baseUrl) ? amazonProduct(html) : {};
+  if (amazon.title) title = amazon.title;
 
   const ldImage = [].concat(ld.image || [])[0];
   let image = meta['og:image:secure_url'] || meta['og:image'] || (typeof ldImage === 'string' ? ldImage : ldImage && ldImage.url) || meta['twitter:image'];
@@ -184,6 +210,7 @@ function parseProduct(html, baseUrl) {
     if (image && JUNK_IMAGE.test(image) && !ldImage) image = '';
     if (image) { const iu = new URL(decode(image), baseUrl); if (iu.protocol === 'http:') iu.protocol = 'https:'; image = ['http:', 'https:'].includes(iu.protocol) && iu.href.length <= 2000 ? iu.href : ''; }
   } catch { image = ''; }
+  if (amazon.image_url) image = amazon.image_url;
 
   let amount = offer.price ?? offer.lowPrice ?? spec.price ?? meta['product:price:amount'] ?? meta['og:price:amount'];
   let currency = offer.priceCurrency || spec.priceCurrency || meta['product:price:currency'] || meta['og:price:currency'];
