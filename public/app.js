@@ -116,6 +116,8 @@ function itemForm(item, onDone) {
         if (r[field] && (replace || !form.elements[field].value.trim())) { form.elements[field].value = r[field]; filled.push(label); }
       }
       syncPreview();
+      // Shop refused the lookup: put the cursor on the next thing to type.
+      if (r.blocked && !filled.includes('photo')) form.elements[form.elements.title.value.trim() ? 'price' : 'title'].focus();
       status.textContent = r.blocked && !filled.includes('photo')
         ? `${r.blocked} does not allow automatic lookup${filled.length ? ` (filled in the ${filled.join(', ')} from the link)` : ''}. Type the name and price, and use "Add a photo" below.`
         : filled.length ? `Filled in the ${filled.join(', ')}. Check it and change anything that looks wrong.`

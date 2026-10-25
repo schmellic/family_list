@@ -28,7 +28,7 @@ Site is on host port 8095 (3000 is taken by Grafana). Data is the SQLite file in
   Invites are emailed by the admin from their own Gmail via a prefilled compose link; the server sends no email.
 - Avatars are an allowlisted emoji plus one of 6 colours (server validates).
 - Photos can be uploaded from the add form: the browser shrinks them to 1000px JPEG, `POST /api/upload` (raw image bytes, magic-number checked, 2MB cap) saves them in `uploads/` beside the DB (`/data/uploads` in Docker) and the item stores `/uploads/<name>`. Files are removed when the item is deleted or its photo changes.
-- The lookup replies `blocked: <shop>` when the fetch fails so the form tells the user to enter details by hand. Decided: the lookup does not disguise itself as a browser to get past shop blocks.
+- The lookup replies `blocked: <shop>` when the fetch fails so the form tells the user to enter details by hand. The lookup sends a browser-style User-Agent (owner's choice, added by hand): Zara and Waterstones work, but Argos, LEGO, Currys and Etsy still return 403, so shops can break or block at any time; manual entry plus photo upload is the fallback.
 - Amazon and some other shops block automated lookups; the lookup then falls back to a title guessed from the URL.
 - Bare numeric prices get a default currency symbol (`DEFAULT_CURRENCY_SYMBOL`, default £).
 - Do not put the real family code in committed files.
