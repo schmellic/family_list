@@ -264,8 +264,10 @@ route('GET', '/api/people', ({ user }) => {
       COUNT(p.item_id) AS bought_count
     FROM users u LEFT JOIN items i ON i.user_id = u.id LEFT JOIN purchases p ON p.item_id = i.id
     GROUP BY u.id ORDER BY u.display_name COLLATE NOCASE`).all();
+  // Visitors who are not signed in only see what is still left to buy.
   return { people: people.map((p) => ({
-    id: p.id, display_name: p.display_name, avatar_emoji: p.avatar_emoji, avatar_color: p.avatar_color, item_count: p.item_count,
+    id: p.id, display_name: p.display_name, avatar_emoji: p.avatar_emoji, avatar_color: p.avatar_color,
+    item_count: user ? p.item_count : p.item_count - p.bought_count,
     remaining: user?.id === p.id ? null : p.item_count - p.bought_count,
   })) };
 });
@@ -277,9 +279,11 @@ route('GET', '/api/people/:id', ({ user, params }) => {
   const items = db.prepare(`SELECT i.id, i.title, i.url, i.image_url, i.price, i.notes, i.created_at, p.purchased_by, p.purchased_at
     FROM items i LEFT JOIN purchases p ON p.item_id = i.id
     WHERE i.user_id = ? ORDER BY i.created_at DESC, i.id DESC`).all(person.id);
+  // Bought items drop off the list for visitors who are not signed in (signed-in family and admins still see them).
+  const shown = user ? items : items.filter((it) => !it.purchased_by);
   return {
-    person, isOwner,
-    items: items.map(({ purchased_by, purchased_at, ...it }) =>
+    person, isOwner, hiddenBought: items.length - shown.length,
+    items: shown.map(({ purchased_by, purchased_at, ...it }) =>
       isOwner ? it : { ...it, purchased: purchased_by ? { by: purchased_by, at: purchased_at } : null }),
   };
 });

@@ -23,6 +23,7 @@ Owners never see purchase info on their own list. Runs in Docker on the owner's 
 Site is on host port 8095 (3000 is taken by Grafana). Data is the SQLite file in the mounted `/data`.
 
 ## Decisions and gotchas
+- Bought items are hidden from visitors who are not signed in (list and counts); signed-in family and admins still see them with who bought. Owners never see purchase info.
 - CSP is strict: no inline scripts/styles. Images allowed from `self` and any https host (product photos are hotlinked).
 - Admin: view all lists and purchases, delete users/items, clear purchases, change roles, reset passwords, create single-use 7-day invite links.
   Invites are emailed by the admin from their own Gmail via a prefilled compose link; the server sends no email.

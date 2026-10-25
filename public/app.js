@@ -155,7 +155,7 @@ function itemForm(item, onDone) {
 }
 
 async function list(id) {
-  const { person, isOwner, items } = await api('GET', `/api/people/${id}`);
+  const { person, isOwner, items, hiddenBought } = await api('GET', `/api/people/${id}`);
   let editing = null;
   const render = () => {
     const cards = items.map((it) => editing === it.id ? itemForm(it, () => { editing = null; list(id); }) : itemCard(it));
@@ -167,7 +167,7 @@ async function list(id) {
       isOwner && itemForm(null, () => list(id)),
       cards.length ? h('div', { class: 'items-wrap' }, !editing && h('div', { class: 'colhead', 'aria-hidden': 'true' }, h('span'), h('span', {}, 'Item'), h('span', {}, 'Price'), h('span', {}, 'Status')),
         h('ul', { class: 'items' }, cards.map((c) => h('li', {}, c))))
-        : h('div', { class: 'empty' }, isOwner ? 'Nothing here yet. Add your first wish above.' : `${person.display_name} has not added anything yet.`),
+        : h('div', { class: 'empty' }, isOwner ? 'Nothing here yet. Add your first wish above.' : hiddenBought ? `Everything on ${person.display_name}'s list has been bought.` : `${person.display_name} has not added anything yet.`),
     );
   };
   const thumb = (it) => {
@@ -203,7 +203,7 @@ async function list(id) {
     return h('form', { class: 'buy-form', onsubmit: guard(async (e) => {
       e.preventDefault();
       await api('POST', `/api/items/${it.id}/purchase`, { name: name.value });
-      toast('Marked as bought'); list(id);
+      toast(me ? 'Marked as bought' : 'Marked as bought. It is now hidden from this list.'); list(id);
     }) }, name, h('button', { class: 'primary', type: 'submit' }, 'I bought this'));
   };
   render();
