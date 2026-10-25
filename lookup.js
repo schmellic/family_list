@@ -49,7 +49,7 @@ function request(u, allowPrivate) {
     const req = lib.request(u, {
       method: 'GET', lookup, timeout: TIMEOUT_MS,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; FamilyWishlistBot/1.0)',
+        'User-Agent': 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36',
         Accept: 'text/html,application/xhtml+xml', 'Accept-Language': 'en-GB,en;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
       },
