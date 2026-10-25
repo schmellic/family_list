@@ -81,6 +81,29 @@ function itemForm(item, onDone) {
     preview.replaceChildren(img, h('button', { type: 'button', class: 'link', onclick: () => { form.elements.image_url.value = ''; syncPreview(); } }, 'Remove photo'));
   };
 
+  // Shrink a phone photo in the browser (max 1000px, JPEG) before uploading it.
+  async function uploadPhoto(file) {
+    photoStatus.textContent = 'Uploading photo...'; photoBtn.disabled = true;
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1000 / Math.max(bmp.width, bmp.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+      canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/jpeg', 0.85));
+      const res = await fetch('/api/upload', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      form.elements.image_url.value = data.image_url;
+      photoStatus.textContent = '';
+      syncPreview();
+    } catch (x) { photoStatus.textContent = x.name === 'InvalidStateError' || x instanceof DOMException ? 'Could not read that photo. Try a different one.' : x.message; }
+    finally { photoBtn.disabled = false; photoInput.value = ''; }
+  }
+  const photoStatus = h('p', { class: 'hint', 'aria-live': 'polite' });
+  const photoInput = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: () => photoInput.files[0] && uploadPhoto(photoInput.files[0]) });
+  const photoBtn = h('button', { type: 'button', onclick: () => photoInput.click() }, 'Add a photo');
+
   // Auto lookup fills only empty fields; the button replaces them.
   async function runLookup(replace) {
     const url = form.elements.url.value.trim();
@@ -93,7 +116,9 @@ function itemForm(item, onDone) {
         if (r[field] && (replace || !form.elements[field].value.trim())) { form.elements[field].value = r[field]; filled.push(label); }
       }
       syncPreview();
-      status.textContent = filled.length ? `Filled in the ${filled.join(', ')}. Check it and change anything that looks wrong.`
+      status.textContent = r.blocked && !filled.includes('photo')
+        ? `${r.blocked} does not allow automatic lookup${filled.length ? ` (filled in the ${filled.join(', ')} from the link)` : ''}. Type the name and price, and use "Add a photo" below.`
+        : filled.length ? `Filled in the ${filled.join(', ')}. Check it and change anything that looks wrong.`
         : Object.keys(r).length ? 'Nothing new to fill in.' : 'Could not read details from that page. Please fill them in yourself.';
     } catch (x) { status.textContent = x.message; }
     finally { lookupBtn.disabled = false; }
@@ -113,9 +138,11 @@ function itemForm(item, onDone) {
       lookupBtn),
     status,
     f('title', 'What is it?', { required: true, maxLength: 200 }),
-    h('div', {}, f('image_url', 'Photo link (optional)', { placeholder: 'https://', maxLength: 2000, onchange: syncPreview }),
-      h('p', { class: 'hint' }, 'Filled in for you when possible. Otherwise right-click the product photo, choose "Copy image address" and paste it here.'),
-      preview),
+    h('div', {}, h('div', { class: 'lookup-row' },
+        f('image_url', 'Photo (optional)', { placeholder: 'Photo link, or use the button', maxLength: 2000, onchange: syncPreview }),
+        photoBtn, photoInput),
+      h('p', { class: 'hint' }, 'Filled in for you when possible. Otherwise tap "Add a photo" to pick one from your phone or computer, or paste a photo link.'),
+      photoStatus, preview),
     h('div', { class: 'two' }, f('price', 'Price (approx.)', { maxLength: 40 }), h('span')),
     f('notes', 'Size, colour, anything else', { area: true, maxLength: 1000 }),
     err,

@@ -10,6 +10,10 @@ const PORT = process.env.PORT || 3000;
 const FAMILY_CODE = process.env.FAMILY_CODE || '';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'wishlist.db');
 const SESSION_DAYS = 30;
+const UPLOAD_DIR = path.join(path.dirname(path.resolve(DB_PATH)), 'uploads');
+fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const MAX_UPLOAD = 2_000_000;
+const UPLOAD_URL = /^\/uploads\/[a-f0-9]{32}\.(jpg|png|webp)$/;
 
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 if (!FAMILY_CODE) console.log('FAMILY_CODE is empty: accounts can only be created from admin invite links.');
@@ -132,6 +136,41 @@ function cleanUrl(v, label = 'Link') {
   try { u = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`); } catch { throw fail(400, `That ${label.toLowerCase()} does not look valid`); }
   if (!['http:', 'https:'].includes(u.protocol)) throw fail(400, `${label} must start with http or https`);
   return u.href;
+}
+
+// Uploaded photos live as files next to the database. An item's image_url points at /uploads/<name>.
+const uploadName = (url) => (url && UPLOAD_URL.test(url) ? path.join(UPLOAD_DIR, path.basename(url)) : null);
+function dropUnusedUpload(url) {
+  const file = uploadName(url);
+  if (!file || db.prepare('SELECT 1 FROM items WHERE image_url = ?').get(url)) return;
+  fs.rm(file, { force: true }, () => {});
+}
+function imageExt(buf) {
+  if (buf.length > 12 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
+  if (buf.length > 12 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+  if (buf.length > 12 && buf.subarray(0, 4).toString() === 'RIFF' && buf.subarray(8, 12).toString() === 'WEBP') return 'webp';
+  return null;
+}
+const uploads = new Map();
+async function handleUpload(req, res) {
+  const user = currentUser(req);
+  if (!user) throw fail(401, 'Please sign in');
+  const rec = uploads.get(user.id) || { n: 0, reset: now() + 10 * 60e3 };
+  if (now() > rec.reset) { rec.n = 0; rec.reset = now() + 10 * 60e3; }
+  if (++rec.n > 30) throw fail(429, 'Too many uploads. Try again in a few minutes.');
+  uploads.set(user.id, rec);
+  let size = 0; const chunks = [];
+  for await (const c of req) {
+    size += c.length;
+    if (size > MAX_UPLOAD) throw fail(413, 'That photo is too big');
+    chunks.push(c);
+  }
+  const buf = Buffer.concat(chunks);
+  const ext = imageExt(buf);
+  if (!ext) throw fail(400, 'That does not look like a JPEG, PNG or WebP photo');
+  const name = `${crypto.randomBytes(16).toString('hex')}.${ext}`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, name), buf);
+  json(res, 201, { image_url: `/uploads/${name}` });
 }
 
 // naive per-IP throttle for login/register
@@ -325,7 +364,7 @@ route('POST', '/api/lookup', async (ctx) => {
   catch (e) {
     console.log('Lookup failed for', new URL(url).hostname, '-', e.message);
     const guess = titleFromUrl(url); // shop blocked us: at least use the name in the link
-    return guess ? { title: guess } : {};
+    return { ...(guess ? { title: guess } : {}), blocked: new URL(url).hostname.replace(/^www\./, '') };
   }
 });
 
@@ -333,10 +372,18 @@ route('POST', '/api/lookup', async (ctx) => {
 const CURRENCY = process.env.DEFAULT_CURRENCY_SYMBOL || '£';
 const withCurrency = (p) => (/^\d[\d.,]*$/.test(p) ? CURRENCY + p : p);
 
+function imageField(v) {
+  if (typeof v === 'string' && v.startsWith('/uploads/')) {
+    if (UPLOAD_URL.test(v) && fs.existsSync(uploadName(v))) return v;
+    throw fail(400, 'That photo is no longer available. Add it again.');
+  }
+  return cleanUrl(v, 'Image link');
+}
+
 const itemFields = (b) => ({
   title: str(b.title, 200, 'Item name', true),
   url: cleanUrl(b.url),
-  image_url: cleanUrl(b.image_url, 'Image link'),
+  image_url: imageField(b.image_url),
   price: withCurrency(str(b.price, 40, 'Price')) || null,
   notes: str(b.notes, 1000, 'Notes') || null,
 });
@@ -353,16 +400,20 @@ route('POST', '/api/items', (ctx) => {
 route('PUT', '/api/items/:id', (ctx) => {
   const user = requireUser(ctx);
   const f = itemFields(ctx.body);
+  const old = db.prepare('SELECT image_url FROM items WHERE id=? AND user_id=?').get(ctx.params.id, user.id);
   const r = db.prepare('UPDATE items SET title=?, url=?, image_url=?, price=?, notes=? WHERE id=? AND user_id=?')
     .run(f.title, f.url, f.image_url, f.price, f.notes, ctx.params.id, user.id);
   if (!r.changes) throw fail(404, 'Item not found');
+  if (old && old.image_url !== f.image_url) dropUnusedUpload(old.image_url);
   return { ok: true };
 });
 
 route('DELETE', '/api/items/:id', (ctx) => {
   const user = requireUser(ctx);
+  const old = db.prepare('SELECT image_url FROM items WHERE id=? AND user_id=?').get(ctx.params.id, user.id);
   const r = db.prepare('DELETE FROM items WHERE id=? AND user_id=?').run(ctx.params.id, user.id);
   if (!r.changes) throw fail(404, 'Item not found');
+  if (old) dropUnusedUpload(old.image_url);
   return { ok: true };
 });
 
@@ -397,11 +448,20 @@ const SEC = {
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
+    if (req.method === 'GET' && UPLOAD_URL.test(url.pathname) && fs.existsSync(uploadName(url.pathname))) {
+      const ext = path.extname(url.pathname).slice(1);
+      res.writeHead(200, { 'Content-Type': ext === 'jpg' ? 'image/jpeg' : `image/${ext}`, 'Cache-Control': 'public, max-age=31536000, immutable', ...SEC });
+      return fs.createReadStream(uploadName(url.pathname)).pipe(res);
+    }
     if (url.pathname.startsWith('/api/')) {
-      // CSRF defence: state-changing requests must be same-origin JSON
+      // CSRF defence: state-changing requests must be same-origin JSON (photo uploads: same-origin image bytes)
       if (req.method !== 'GET') {
         const origin = req.headers.origin;
         if (origin && new URL(origin).host !== req.headers.host) throw fail(403, 'Bad origin');
+        if (req.method === 'POST' && url.pathname === '/api/upload') {
+          if (!/^image\/(jpeg|png|webp)$/.test(req.headers['content-type'] || '')) throw fail(415, 'Photos only');
+          return await handleUpload(req, res);
+        }
         if (!(req.headers['content-type'] || '').startsWith('application/json') && req.headers['content-length'] !== '0' && req.headers['content-length']) throw fail(415, 'JSON only');
       }
       for (const r of routes) {
