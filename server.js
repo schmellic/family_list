@@ -296,7 +296,7 @@ http.createServer(async (req, res) => {
     if (!full.startsWith(PUBLIC + path.sep) || !fs.existsSync(full) || !fs.statSync(full).isFile()) {
       res.writeHead(404, SEC); return res.end('Not found');
     }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(full)] || 'application/octet-stream', ...SEC });
+    res.writeHead(200, { 'Content-Type': TYPES[path.extname(full)] || 'application/octet-stream', 'Cache-Control': 'no-cache', ...SEC });
     fs.createReadStream(full).pipe(res);
   } catch (e) {
     if (res.headersSent) return res.end();
