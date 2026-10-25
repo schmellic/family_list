@@ -1,0 +1,12 @@
+services:
+  wishlist:
+    build: .
+    container_name: family-wishlist
+    restart: unless-stopped
+    ports:
+      - "8095:3000"   # host port 8095, change the left number if taken
+    environment:
+      FAMILY_CODE: "change-me"       # invite code for creating accounts
+      INSECURE_COOKIES: "1"          # needed for plain http on your LAN; remove behind HTTPS
+    volumes:
+      - ./data:/data                 # on Unraid use e.g. /mnt/user/appdata/family-wishlist:/data

@@ -1,0 +1,67 @@
+:root {
+  --bg: #f6f7f4; --surface: #ffffff; --ink: #1d2623; --muted: #62706b;
+  --line: #dde2dc; --accent: #1f6f5c; --accent-ink: #ffffff; --accent-soft: #e0efe9;
+  --danger: #b3382c; --done: #8a948f;
+  --display: "Bricolage Grotesque", system-ui, sans-serif;
+  --body: "Figtree", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121816; --surface: #1a2220; --ink: #e8eeeb; --muted: #94a39d;
+    --line: #2b3733; --accent: #4cb59a; --accent-ink: #0b1411; --accent-soft: #1f322c;
+    --danger: #ef7a6d; --done: #6c7a74; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--body); }
+a { color: var(--accent); }
+h1, h2 { font-family: var(--display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(1.7rem, 5vw, 2.4rem); }
+h2 { font-size: 1.25rem; }
+.top, main { max-width: 760px; margin: 0 auto; padding-inline: 16px; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 16px; flex-wrap: wrap; }
+.brand { font: 700 1.1rem var(--display); color: var(--ink); text-decoration: none; }
+nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: .95rem; }
+main { padding-block: 12px 64px; display: grid; gap: 20px; }
+.sub { color: var(--muted); margin: 4px 0 0; }
+.row { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+
+button, .btn { font: 600 .95rem var(--body); padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
+button:hover, .btn:hover { border-color: var(--accent); }
+.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.link { background: none; border: 0; padding: 4px 6px; color: var(--accent); }
+.link.danger { color: var(--danger); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.people { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.people a { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; text-decoration: none; color: var(--ink); }
+.people a:hover { border-color: var(--accent); }
+.people .name { font: 600 1.1rem var(--display); }
+.pill { font-size: .85rem; padding: 2px 10px; border-radius: 99px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.item { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; min-width: 0; }
+.item h2 { overflow-wrap: anywhere; }
+.item.bought h2 { text-decoration: line-through; color: var(--done); }
+.item.bought { background: transparent; }
+.meta { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: .92rem; }
+.notes { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.bought-by { color: var(--muted); font-size: .92rem; }
+
+form.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 12px; }
+label { display: grid; gap: 4px; font-weight: 500; font-size: .93rem; }
+input, textarea { font: inherit; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); width: 100%; }
+textarea { min-height: 70px; resize: vertical; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 520px) { .two { grid-template-columns: 1fr; } }
+.error { color: var(--danger); margin: 0; }
+.hint { color: var(--muted); font-size: .88rem; margin: 0; }
+.empty { padding: 28px 16px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: 10px; }
+.buy-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.buy-form input { flex: 1 1 160px; width: auto; }
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
+  padding: 10px 18px; border-radius: 8px; max-width: 90vw; }
+@media (prefers-reduced-motion: no-preference) { button, .btn, .people a { transition: border-color .15s; } }
