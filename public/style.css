@@ -65,3 +65,4 @@ textarea { min-height: 70px; resize: vertical; }
 #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg);
   padding: 10px 18px; border-radius: 8px; max-width: 90vw; }
 @media (prefers-reduced-motion: no-preference) { button, .btn, .people a { transition: border-color .15s; } }
+.admin-person { display: grid; gap: 10px; }

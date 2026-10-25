@@ -47,6 +47,8 @@ db.exec(`
   );
 `);
 
+try { db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0'); } catch { /* already migrated */ }
+
 // ---------- helpers ----------
 const now = () => Date.now();
 const json = (res, status, body, headers = {}) => {
@@ -81,7 +83,7 @@ function parseCookies(req) {
 function currentUser(req) {
   const token = parseCookies(req).session;
   if (!token) return null;
-  return db.prepare(`SELECT u.id, u.username, u.display_name FROM sessions s
+  return db.prepare(`SELECT u.id, u.username, u.display_name, u.is_admin FROM sessions s
     JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?`).get(token, now()) || null;
 }
 function sessionCookie(token, maxAgeSec) {
@@ -137,9 +139,19 @@ const routes = [];
 const route = (method, pattern, handler) =>
   routes.push({ method, re: new RegExp(`^${pattern.replace(/:(\w+)/g, '(?<$1>[^/]+)')}$`), handler });
 
+const requireAdmin = (ctx) => { const u = requireUser(ctx); if (!u.is_admin) throw fail(403, 'Admins only'); return u; };
 const requireUser = (ctx) => { if (!ctx.user) throw fail(401, 'Please sign in'); return ctx.user; };
 
-route('GET', '/api/me', ({ user }) => ({ user }));
+route('GET', '/api/me', ({ user }) => ({ user: user && { ...user, is_admin: !!user.is_admin } }));
+
+// Admin overview: every list with purchase details, including the admin's own.
+route('GET', '/api/admin/overview', (ctx) => {
+  requireAdmin(ctx);
+  const people = db.prepare('SELECT id, display_name, username FROM users ORDER BY display_name COLLATE NOCASE').all();
+  const items = db.prepare(`SELECT i.id, i.user_id, i.title, i.url, i.price, p.purchased_by, p.purchased_at
+    FROM items i LEFT JOIN purchases p ON p.item_id = i.id ORDER BY i.created_at DESC, i.id DESC`).all();
+  return { people: people.map((p) => ({ ...p, items: items.filter((i) => i.user_id === p.id).map(({ user_id, ...it }) => it) })) };
+});
 
 route('POST', '/api/register', async (ctx) => {
   throttle(ctx.req);

@@ -26,3 +26,11 @@ The site is served on host port 8095 (left side of the port mapping in `docker-c
 map it to persistent storage (on Unraid, `/mnt/user/appdata/family-wishlist`, owned by uid 1000
 or `chmod 777`). Plain-http LAN use needs `INSECURE_COOKIES=1`; if you put it behind HTTPS
 (Nginx Proxy Manager, Cloudflare Tunnel, Tailscale Funnel), remove that variable.
+
+## Admin
+
+Create the account on the site first, then promote it (the container must be running):
+
+    docker exec family-wishlist node make-admin.js <username>
+
+Admins get an **Admin** button showing every list and who bought what. Use `--remove` to demote.

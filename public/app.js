@@ -33,6 +33,7 @@ const guard = (fn) => async (e) => { try { await fn(e); } catch (err) { toast(er
 
 function renderNav() {
   nav.replaceChildren(...(me ? [
+    me.is_admin && h('a', { class: 'btn', href: '#/admin' }, 'Admin'),
     h('a', { class: 'btn', href: `#/u/${me.id}` }, 'My list'),
     h('button', { onclick: guard(async () => { await api('POST', '/api/logout'); me = null; renderNav(); location.hash = '#/'; toast('Signed out'); }) }, 'Sign out'),
   ] : [h('a', { class: 'btn', href: '#/login' }, 'Family sign in')]));
@@ -115,6 +116,24 @@ async function list(id) {
   render();
 }
 
+async function admin() {
+  const { people } = await api('GET', '/api/admin/overview');
+  const total = people.reduce((n, p) => n + p.items.length, 0);
+  const bought = people.reduce((n, p) => n + p.items.filter((i) => i.purchased_by).length, 0);
+  const fmt = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  show(
+    h('div', {}, h('a', { href: '#/' }, '← Everyone'), h('h1', {}, 'Admin overview'),
+      h('p', { class: 'sub' }, `${people.length} people, ${total} wishes, ${bought} bought. This shows purchases on every list, including yours, so avoid scrolling past your own if you want a surprise.`)),
+    ...people.map((p) => h('section', { class: 'admin-person' },
+      h('div', { class: 'row' }, h('h2', {}, p.display_name), h('span', { class: 'pill' }, `${p.items.filter((i) => i.purchased_by).length} of ${p.items.length} bought`)),
+      p.items.length ? h('ul', { class: 'items' }, p.items.map((it) => h('li', {}, h('article', { class: 'item' + (it.purchased_by ? ' bought' : '') },
+        h('h2', {}, it.title),
+        h('div', { class: 'meta' }, it.price && h('span', {}, it.price),
+          it.purchased_by ? h('span', {}, `Bought by ${it.purchased_by} on ${fmt(it.purchased_at)}`) : h('span', {}, 'Not bought yet'),
+          it.url && h('a', { href: it.url, target: '_blank', rel: 'noopener noreferrer nofollow' }, new URL(it.url).hostname.replace(/^www\./, '') + ' ↗'))))))
+        : h('div', { class: 'empty' }, 'No wishes yet.'))));
+}
+
 function authView(mode) {
   const err = h('p', { class: 'error', hidden: true });
   const reg = mode === 'register';
@@ -143,6 +162,7 @@ async function route() {
   const hash = location.hash || '#/';
   try {
     if (hash.startsWith('#/u/')) await list(hash.slice(4));
+    else if (hash === '#/admin') await admin();
     else if (hash === '#/login') authView('login');
     else if (hash === '#/register') authView('register');
     else await home();
