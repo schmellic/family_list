@@ -48,7 +48,7 @@ async function home() {
     people.length
       ? h('ul', { class: 'people' }, people.map((p) => h('li', {}, h('a', { href: `#/u/${p.id}` },
           h('span', { class: 'name' }, p.display_name),
-          h('span', { class: 'pill' }, p.remaining == null ? `${p.item_count} wishes` : `${p.remaining} of ${p.item_count} still wanted`)))))
+          h('span', { class: 'pill' }, p.remaining == null ? `${p.item_count} ${p.item_count === 1 ? 'wish' : 'wishes'}` : `${p.remaining} of ${p.item_count} still wanted`)))))
       : h('div', { class: 'empty' }, 'No lists yet. A family member can sign up to start one.'),
   );
 }
@@ -116,22 +116,52 @@ async function list(id) {
   render();
 }
 
+// Two-tap confirm for destructive buttons.
+function dangerBtn(label, confirmLabel, action) {
+  return h('button', { class: 'link danger', onclick: guard(async (e) => {
+    if (e.target.dataset.sure !== '1') { e.target.dataset.sure = '1'; e.target.textContent = confirmLabel; return; }
+    await action();
+  }) }, label);
+}
+
 async function admin() {
   const { people } = await api('GET', '/api/admin/overview');
   const total = people.reduce((n, p) => n + p.items.length, 0);
   const bought = people.reduce((n, p) => n + p.items.filter((i) => i.purchased_by).length, 0);
   const fmt = (t) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-  show(
-    h('div', {}, h('a', { href: '#/' }, '← Everyone'), h('h1', {}, 'Admin overview'),
-      h('p', { class: 'sub' }, `${people.length} people, ${total} wishes, ${bought} bought. This shows purchases on every list, including yours, so avoid scrolling past your own if you want a surprise.`)),
-    ...people.map((p) => h('section', { class: 'admin-person' },
-      h('div', { class: 'row' }, h('h2', {}, p.display_name), h('span', { class: 'pill' }, `${p.items.filter((i) => i.purchased_by).length} of ${p.items.length} bought`)),
+  const act = (fn, msg) => guard(async () => { await fn(); toast(msg); admin(); });
+  const pwBox = (p) => {
+    const input = h('input', { type: 'password', minLength: 8, placeholder: 'New password (8+ characters)', 'aria-label': `New password for ${p.display_name}` });
+    return h('form', { class: 'buy-form', onsubmit: act(async (e) => { e.preventDefault(); await api('POST', `/api/admin/users/${p.id}/password`, { password: input.value }); }, 'Password changed') },
+      input, h('button', { type: 'submit' }, 'Set password'));
+  };
+  const personBlock = (p) => {
+    const isMe = p.id === me.id;
+    const pwForm = pwBox(p); pwForm.hidden = true;
+    return h('section', { class: 'admin-person' },
+      h('div', { class: 'row' },
+        h('h2', {}, p.display_name, p.is_admin && h('span', { class: 'pill admin-pill' }, 'Admin')),
+        h('span', { class: 'pill' }, `${p.items.filter((i) => i.purchased_by).length} of ${p.items.length} bought`)),
+      h('p', { class: 'hint' }, `Username: ${p.username}`),
+      h('div', { class: 'actions' },
+        !isMe && h('button', { class: 'link', onclick: act(() => api('POST', `/api/admin/users/${p.id}/admin`, { admin: !p.is_admin }), p.is_admin ? 'Admin removed' : 'Now an admin') }, p.is_admin ? 'Remove admin' : 'Make admin'),
+        h('button', { class: 'link', onclick: () => { pwForm.hidden = !pwForm.hidden; } }, 'Reset password'),
+        !isMe && dangerBtn('Delete user', 'Tap again: deletes them and their list', act(() => api('DELETE', `/api/admin/users/${p.id}`), 'User deleted'))),
+      pwForm,
       p.items.length ? h('ul', { class: 'items' }, p.items.map((it) => h('li', {}, h('article', { class: 'item' + (it.purchased_by ? ' bought' : '') },
         h('h2', {}, it.title),
         h('div', { class: 'meta' }, it.price && h('span', {}, it.price),
           it.purchased_by ? h('span', {}, `Bought by ${it.purchased_by} on ${fmt(it.purchased_at)}`) : h('span', {}, 'Not bought yet'),
-          it.url && h('a', { href: it.url, target: '_blank', rel: 'noopener noreferrer nofollow' }, new URL(it.url).hostname.replace(/^www\./, '') + ' ↗'))))))
-        : h('div', { class: 'empty' }, 'No wishes yet.'))));
+          it.url && h('a', { href: it.url, target: '_blank', rel: 'noopener noreferrer nofollow' }, new URL(it.url).hostname.replace(/^www\./, '') + ' ↗')),
+        h('div', { class: 'actions' },
+          it.purchased_by && h('button', { class: 'link', onclick: act(() => api('DELETE', `/api/admin/items/${it.id}/purchase`), 'Purchase cleared') }, 'Clear purchase'),
+          dangerBtn('Delete item', 'Tap again to delete', act(() => api('DELETE', `/api/admin/items/${it.id}`), 'Item deleted')))))))
+        : h('div', { class: 'empty' }, 'No wishes yet.'));
+  };
+  show(
+    h('div', {}, h('a', { href: '#/' }, '← Everyone'), h('h1', {}, 'Admin'),
+      h('p', { class: 'sub' }, `${people.length} people, ${total} wishes, ${bought} bought. This shows purchases on every list, including yours, so avoid scrolling past your own if you want a surprise.`)),
+    ...people.map(personBlock));
 }
 
 function authView(mode) {

@@ -147,10 +147,10 @@ route('GET', '/api/me', ({ user }) => ({ user: user && { ...user, is_admin: !!us
 // Admin overview: every list with purchase details, including the admin's own.
 route('GET', '/api/admin/overview', (ctx) => {
   requireAdmin(ctx);
-  const people = db.prepare('SELECT id, display_name, username FROM users ORDER BY display_name COLLATE NOCASE').all();
+  const people = db.prepare('SELECT id, display_name, username, is_admin FROM users ORDER BY display_name COLLATE NOCASE').all();
   const items = db.prepare(`SELECT i.id, i.user_id, i.title, i.url, i.price, p.purchased_by, p.purchased_at
     FROM items i LEFT JOIN purchases p ON p.item_id = i.id ORDER BY i.created_at DESC, i.id DESC`).all();
-  return { people: people.map((p) => ({ ...p, items: items.filter((i) => i.user_id === p.id).map(({ user_id, ...it }) => it) })) };
+  return { people: people.map((p) => ({ ...p, is_admin: !!p.is_admin, items: items.filter((i) => i.user_id === p.id).map(({ user_id, ...it }) => it) })) };
 });
 
 route('POST', '/api/register', async (ctx) => {
@@ -207,6 +207,47 @@ route('GET', '/api/people/:id', ({ user, params }) => {
     items: items.map(({ purchased_by, purchased_at, ...it }) =>
       isOwner ? it : { ...it, purchased: purchased_by ? { by: purchased_by, at: purchased_at } : null }),
   };
+});
+
+// Admin maintenance: remove users/items, clear purchases, change roles, reset passwords.
+route('DELETE', '/api/admin/users/:id', (ctx) => {
+  const admin = requireAdmin(ctx);
+  if (Number(ctx.params.id) === admin.id) throw fail(400, 'You can not delete your own account');
+  const r = db.prepare('DELETE FROM users WHERE id = ?').run(ctx.params.id); // cascades to items, purchases, sessions
+  if (!r.changes) throw fail(404, 'User not found');
+  return { ok: true };
+});
+
+route('POST', '/api/admin/users/:id/admin', (ctx) => {
+  const admin = requireAdmin(ctx);
+  const makeAdmin = !!ctx.body.admin;
+  if (!makeAdmin && Number(ctx.params.id) === admin.id) throw fail(400, 'You can not remove your own admin rights');
+  const r = db.prepare('UPDATE users SET is_admin = ? WHERE id = ?').run(makeAdmin ? 1 : 0, ctx.params.id);
+  if (!r.changes) throw fail(404, 'User not found');
+  return { ok: true };
+});
+
+route('POST', '/api/admin/users/:id/password', (ctx) => {
+  requireAdmin(ctx);
+  const pw = typeof ctx.body.password === 'string' ? ctx.body.password : '';
+  if (pw.length < 8) throw fail(400, 'Password must be at least 8 characters');
+  const r = db.prepare('UPDATE users SET pass_hash = ? WHERE id = ?').run(hashPassword(pw), ctx.params.id);
+  if (!r.changes) throw fail(404, 'User not found');
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(ctx.params.id); // sign them out everywhere
+  return { ok: true };
+});
+
+route('DELETE', '/api/admin/items/:id', (ctx) => {
+  requireAdmin(ctx);
+  const r = db.prepare('DELETE FROM items WHERE id = ?').run(ctx.params.id);
+  if (!r.changes) throw fail(404, 'Item not found');
+  return { ok: true };
+});
+
+route('DELETE', '/api/admin/items/:id/purchase', (ctx) => {
+  requireAdmin(ctx);
+  db.prepare('DELETE FROM purchases WHERE item_id = ?').run(ctx.params.id);
+  return { ok: true };
 });
 
 const itemFields = (b) => ({

@@ -66,3 +66,4 @@ textarea { min-height: 70px; resize: vertical; }
   padding: 10px 18px; border-radius: 8px; max-width: 90vw; }
 @media (prefers-reduced-motion: no-preference) { button, .btn, .people a { transition: border-color .15s; } }
 .admin-person { display: grid; gap: 10px; }
+.admin-pill { margin-left: 8px; vertical-align: middle; font-family: var(--body); }
