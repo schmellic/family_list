@@ -129,7 +129,44 @@ function formatPrice(amount, currency) {
   const num = Number.isInteger(n) ? String(n) : n.toFixed(2);
   return cur ? (SYMBOLS[cur] ? `${SYMBOLS[cur]}${num}` : `${cur} ${num}`) : num;
 }
+// When a page gives a price but no currency, guess from the shop's domain.
+function currencyFromUrl(u) {
+  try {
+    const h = new URL(u).hostname.toLowerCase();
+    if (/\.(co\.uk|uk|gb)$/.test(h)) return 'GBP';
+    if (/\.(com\.au|au)$/.test(h)) return 'AUD';
+    if (/\.(ca)$/.test(h)) return 'CAD';
+    if (/\.(nz)$/.test(h)) return 'NZD';
+    if (/\.(de|fr|es|it|nl|ie|be|at|pt|fi)$/.test(h)) return 'EUR';
+    if (/\.(in)$/.test(h)) return 'INR';
+    if (/\.(com|us)$/.test(h)) return 'USD';
+  } catch { /* ignore */ }
+  return '';
+}
 const clean = (s, max) => (s ? decode(s).replace(/\s+/g, ' ').trim().slice(0, max) : '');
+
+// Shops that block bots send back a generic page: site name as title, logo as image.
+const JUNK_TITLE = /^(robot check|captcha|access denied|just a moment|attention required|sign[- ]?in|log ?in|page not found|404|403|error|service unavailable|verify you are human)\b/i;
+const JUNK_IMAGE = /(share-icons|previewdoh|logo|favicon|sprite|placeholder|default[-_]?image|blank\.)/i;
+function isJunkTitle(title, pageUrl) {
+  if (!title || JUNK_TITLE.test(title)) return true;
+  const brand = new URL(pageUrl).hostname.replace(/^www\./, '').split('.')[0].toLowerCase();
+  const plain = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return plain === brand || plain === brand + 'com' || plain === brand + 'couk';
+}
+
+// Product name guessed from the link, e.g. /Grand-Theft-Auto-VI-PlayStation/dp/B0H25M... on Amazon.
+function titleFromUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    const segs = u.pathname.split('/').filter(Boolean).map((s) => { try { return decodeURIComponent(s); } catch { return s; } });
+    const dp = segs.findIndex((s) => /^(dp|gp|product|p)$/i.test(s));
+    const slug = (dp > 0 ? segs[dp - 1] : segs.filter((s) => /^[\w%.-]+$/.test(s) && (s.match(/[-_]/g) || []).length >= 2).sort((a, b) => b.length - a.length)[0]) || '';
+    const words = slug.replace(/\.(html?|php|aspx?)$/i, '').split(/[-_+]+/).filter(Boolean);
+    if (words.length < 2 || words.some((w) => w.length > 30) || words.every((w) => /^\d+$/.test(w))) return '';
+    return words.join(' ').slice(0, 200);
+  } catch { return ''; }
+}
 
 function parseProduct(html, baseUrl) {
   const meta = metaMap(html);
@@ -138,11 +175,13 @@ function parseProduct(html, baseUrl) {
   const offer = [].concat(ld.offers || [])[0] || {};
   const spec = [].concat(offer.priceSpecification || [])[0] || {};
 
-  const title = clean(ld.name || meta['og:title'] || meta['twitter:title'] || (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1], 200);
+  let title = clean(ld.name || meta['og:title'] || meta['twitter:title'] || (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1], 200);
+  if (isJunkTitle(title, baseUrl)) title = '';
 
   const ldImage = [].concat(ld.image || [])[0];
   let image = meta['og:image:secure_url'] || meta['og:image'] || (typeof ldImage === 'string' ? ldImage : ldImage && ldImage.url) || meta['twitter:image'];
   try {
+    if (image && JUNK_IMAGE.test(image) && !ldImage) image = '';
     if (image) { const iu = new URL(decode(image), baseUrl); if (iu.protocol === 'http:') iu.protocol = 'https:'; image = ['http:', 'https:'].includes(iu.protocol) && iu.href.length <= 2000 ? iu.href : ''; }
   } catch { image = ''; }
 
@@ -152,7 +191,7 @@ function parseProduct(html, baseUrl) {
     const tag = (html.match(/<[^>]+itemprop=["']price["'][^>]*>/i) || [])[0];
     if (tag) { const a = attrs(tag); amount = a.content; currency = currency || a.pricecurrency; }
   }
-  const price = formatPrice(amount, currency);
+  const price = formatPrice(amount, currency || currencyFromUrl(baseUrl));
 
   const out = {};
   if (title) out.title = title;
@@ -163,7 +202,9 @@ function parseProduct(html, baseUrl) {
 
 async function fetchProductInfo(rawUrl, { allowPrivate = false } = {}) {
   const { html, url } = await fetchHtml(rawUrl, allowPrivate);
-  return parseProduct(html, url);
+  const info = parseProduct(html, url);
+  if (!info.title) { const guess = titleFromUrl(rawUrl); if (guess) info.title = guess; }
+  return info;
 }
 
-module.exports = { fetchProductInfo, parseProduct, isPrivateIp, formatPrice };
+module.exports = { fetchProductInfo, parseProduct, isPrivateIp, formatPrice, titleFromUrl };

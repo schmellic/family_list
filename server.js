@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { DatabaseSync } = require('node:sqlite');
-const { fetchProductInfo } = require('./lookup');
+const { fetchProductInfo, titleFromUrl } = require('./lookup');
 
 const PORT = process.env.PORT || 3000;
 const FAMILY_CODE = process.env.FAMILY_CODE || '';
@@ -322,14 +322,22 @@ route('POST', '/api/lookup', async (ctx) => {
   const url = cleanUrl(ctx.body.url);
   if (!url) throw fail(400, 'Link is required');
   try { return await fetchProductInfo(url, { allowPrivate: !!process.env.LOOKUP_ALLOW_PRIVATE_FOR_TESTS }); }
-  catch (e) { console.log('Lookup failed for', new URL(url).hostname, '-', e.message); return {}; }
+  catch (e) {
+    console.log('Lookup failed for', new URL(url).hostname, '-', e.message);
+    const guess = titleFromUrl(url); // shop blocked us: at least use the name in the link
+    return guess ? { title: guess } : {};
+  }
 });
+
+// A bare number like "59.99" gets the default currency symbol so prices always show one.
+const CURRENCY = process.env.DEFAULT_CURRENCY_SYMBOL || '£';
+const withCurrency = (p) => (/^\d[\d.,]*$/.test(p) ? CURRENCY + p : p);
 
 const itemFields = (b) => ({
   title: str(b.title, 200, 'Item name', true),
   url: cleanUrl(b.url),
   image_url: cleanUrl(b.image_url, 'Image link'),
-  price: str(b.price, 40, 'Price') || null,
+  price: withCurrency(str(b.price, 40, 'Price')) || null,
   notes: str(b.notes, 1000, 'Notes') || null,
 });
 
