@@ -36,7 +36,7 @@ function renderNav() {
     me.is_admin && h('a', { class: 'btn', href: '#/admin' }, 'Admin'),
     h('a', { class: 'btn', href: `#/u/${me.id}` }, 'My list'),
     h('button', { onclick: guard(async () => { await api('POST', '/api/logout'); me = null; renderNav(); location.hash = '#/'; toast('Signed out'); }) }, 'Sign out'),
-  ] : [h('a', { class: 'btn', href: '#/login' }, 'Family sign in')]));
+  ] : [h('a', { class: 'btn', href: '#/login' }, 'Family sign in')]).filter(Boolean));
 }
 
 // ---------- views ----------

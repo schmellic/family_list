@@ -173,7 +173,7 @@ route('POST', '/api/login', async (ctx) => {
   const row = db.prepare('SELECT * FROM users WHERE username = ?').get(String(ctx.body.username || ''));
   const ok = row && checkPassword(String(ctx.body.password || ''), row.pass_hash);
   if (!ok) throw fail(401, 'Username or password is wrong');
-  ctx.startSession(row.id, 200, { user: { id: row.id, username: row.username, display_name: row.display_name } });
+  ctx.startSession(row.id, 200, { user: { id: row.id, username: row.username, display_name: row.display_name, is_admin: !!row.is_admin } });
 });
 
 route('POST', '/api/logout', (ctx) => {
