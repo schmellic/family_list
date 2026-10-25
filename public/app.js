@@ -203,7 +203,7 @@ async function list(id) {
     return h('form', { class: 'buy-form', onsubmit: guard(async (e) => {
       e.preventDefault();
       await api('POST', `/api/items/${it.id}/purchase`, { name: name.value });
-      toast(me ? 'Marked as bought' : 'Marked as bought. It is now hidden from this list.'); list(id);
+      toast(me?.is_admin ? 'Marked as bought' : 'Marked as bought. It is now hidden from this list.'); list(id);
     }) }, name, h('button', { class: 'primary', type: 'submit' }, 'I bought this'));
   };
   render();
