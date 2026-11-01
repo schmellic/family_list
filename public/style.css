@@ -165,3 +165,7 @@ textarea { min-height: 76px; resize: vertical; }
 .lookup-row label { flex: 1 1 240px; }
 .photo-preview { display: flex; gap: 12px; align-items: center; margin-top: 8px; }
 .photo-preview:empty { display: none; }
+
+.offscreen { position: fixed; left: -9999px; top: 0; opacity: 0; }
+.invite-result textarea { width: 100%; margin-top: 8px; font: inherit; }
+.invite-result input { width: 100%; margin-top: 8px; }

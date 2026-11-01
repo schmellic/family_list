@@ -245,10 +245,20 @@ async function admin() {
   const { invites } = await api('GET', '/api/admin/invites');
   const result = h('div', { class: 'invite-result', hidden: true });
   const emailIn = h('input', { id: 'invite-email', type: 'email', required: true, placeholder: 'name@example.com', 'aria-label': 'Email address to invite' });
-  const copy = async (text, input) => { try { await navigator.clipboard.writeText(text); toast('Copied'); } catch { input.select(); toast('Press Ctrl+C to copy'); } };
+  // navigator.clipboard needs https, so plain-http LAN use falls back to the older select-and-copy route.
+  const copy = async (text, box) => {
+    try { await navigator.clipboard.writeText(text); return toast('Copied'); } catch { /* try the fallback */ }
+    try {
+      const ta = h('textarea', { value: text, readOnly: true, class: 'offscreen' });
+      document.body.append(ta); ta.focus(); ta.select(); ta.setSelectionRange(0, text.length);
+      const ok = document.execCommand('copy'); ta.remove();
+      if (ok) return toast('Copied');
+    } catch { /* fall through */ }
+    box.focus(); box.select(); toast('Press and hold the text to copy it');
+  };
   const inviteBox = h('section', { class: 'admin-person' },
     h('h2', {}, 'Invite someone'),
-    h('p', { class: 'hint' }, 'Enter their email and I will draft a message in Gmail for you to send. The link works once and expires in 7 days.'),
+    h('p', { class: 'hint' }, 'Enter their email, then send the message by email, text or WhatsApp. The link works once and expires in 7 days.'),
     h('form', { class: 'buy-form', onsubmit: guard(async (e) => {
       e.preventDefault();
       const r = await api('POST', '/api/admin/invites', { email: emailIn.value });
@@ -256,12 +266,18 @@ async function admin() {
       const body = `Hi,\n\nI've set up the Schmellic Family Wishlists so we can all see what everyone wants and avoid doubling up on presents. Create your account here (the link works once and expires in 7 days):\n\n${r.link}\n\nOnce you're in, add things you'd like, with links to where to buy them.\n\n${me.display_name}`;
       const gmail = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(r.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       const link = h('input', { readOnly: true, value: r.link, 'aria-label': 'Invite link', onfocus: (ev) => ev.target.select() });
+      const msg = h('textarea', { readOnly: true, rows: 7, value: body, 'aria-label': 'Invite message', onfocus: (ev) => ev.target.select() });
+      const mailto = `mailto:${encodeURIComponent(r.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       result.replaceChildren(
         h('p', { class: 'hint' }, `Invite created for ${r.email}. Nothing has been sent yet.`),
         h('div', { class: 'actions' },
-          h('a', { class: 'btn primary', href: gmail, target: '_blank', rel: 'noopener noreferrer' }, 'Open draft in Gmail'),
-          h('button', { type: 'button', onclick: () => copy(body, link) }, 'Copy message')),
-        h('div', { class: 'buy-form' }, link, h('button', { type: 'button', onclick: () => copy(r.link, link) }, 'Copy link')));
+          h('a', { class: 'btn primary', href: mailto }, 'Email it'),
+          h('a', { class: 'btn', href: `sms:?&body=${encodeURIComponent(body)}` }, 'Text message'),
+          h('a', { class: 'btn', href: `https://wa.me/?text=${encodeURIComponent(body)}`, target: '_blank', rel: 'noopener noreferrer' }, 'WhatsApp'),
+          h('a', { class: 'btn', href: gmail, target: '_blank', rel: 'noopener noreferrer' }, 'Gmail (computer)')),
+        h('div', { class: 'actions' }, h('button', { type: 'button', onclick: () => copy(body, msg) }, 'Copy message'),
+          h('button', { type: 'button', onclick: () => copy(r.link, link) }, 'Copy link')),
+        msg, link);
       result.hidden = false; emailIn.value = '';
     }) }, emailIn, h('button', { class: 'primary', type: 'submit' }, 'Create invite')),
     result,
