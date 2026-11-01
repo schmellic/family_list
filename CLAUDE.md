@@ -24,6 +24,7 @@ Site is on host port 8095 (3000 is taken by Grafana). Data is the SQLite file in
 
 ## Decisions and gotchas
 - Bought items are hidden from everyone except admins (list and counts), including signed-in family. Owners still see all their own items but never purchase info. Only admins can undo a purchase from the UI.
+- Sign-in/sign-up throttle: 20 failed attempts per 15 min per IP (successes do not count). Behind Cloudflare Tunnel or another proxy set `TRUST_PROXY=1` so the real visitor IP (`CF-Connecting-IP` / `X-Forwarded-For`) is used; without it those headers are ignored. For public hosting also set `PUBLIC_URL=https://...` (invite link base) and drop `INSECURE_COOKIES`.
 - CSP is strict: no inline scripts/styles. Images allowed from `self` and any https host (product photos are hotlinked).
 - Admin: view all lists and purchases, delete users/items, clear purchases, change roles, reset passwords, create single-use 7-day invite links.
   Invites are emailed by the admin from their own Gmail via a prefilled compose link; the server sends no email.

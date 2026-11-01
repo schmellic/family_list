@@ -14,6 +14,8 @@ Environment variables:
 
 - `FAMILY_CODE` (required): invite code needed to create an account.
 - `PORT` (default 3000), `DB_PATH` (default `./wishlist.db`; put this on persistent storage).
+- `PUBLIC_URL`: address used in invite links (default: the address the admin used).
+- `TRUST_PROXY=1`: only behind a proxy or tunnel you control; takes the visitor's address from its headers.
 - `INSECURE_COOKIES=1`: only for local http testing. In production serve over HTTPS.
 
 Back up the `.db` file and the `uploads` folder next to it to back up everything.
@@ -32,6 +34,12 @@ The site is on host port 8095 (the left number in `-p`). The database and upload
 `/data` folder, so map it to persistent storage (owned by uid 1000, or `chmod 777`). Plain-http LAN use needs
 `INSECURE_COOKIES=1`; if you put it behind HTTPS (Nginx Proxy Manager, Cloudflare Tunnel, Tailscale Funnel),
 remove that variable. `docker-compose.yml` is there for hosts that do have compose (`docker compose up -d --build`).
+
+### Putting it on the internet (Cloudflare Tunnel etc.)
+
+Point the tunnel at `http://<server-ip>:8095` and add these to the `docker run`: `-e PUBLIC_URL="https://your.domain"`
+(invite links use it), `-e TRUST_PROXY=1` (the sign-in limit then uses each visitor's real address, not the tunnel's),
+and remove `INSECURE_COOKIES=1` once the site is served over https.
 
 To update: `git pull`, then run the three commands above again. Your data is not touched.
 

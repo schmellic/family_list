@@ -173,15 +173,23 @@ async function handleUpload(req, res) {
   json(res, 201, { image_url: `/uploads/${name}` });
 }
 
-// naive per-IP throttle for login/register
+// Per-IP throttle for sign-in and sign-up: only failed attempts count, so family signing in normally never hit it.
+// Behind a trusted proxy or tunnel (TRUST_PROXY=1) the visitor's real address comes from its headers; otherwise
+// those headers are ignored because anyone could fake them.
+const TRUST_PROXY = !!process.env.TRUST_PROXY;
+const clientIp = (req) => (TRUST_PROXY
+  ? String(req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'] || '').split(',')[0].trim() : '') || req.socket.remoteAddress;
 const attempts = new Map();
+const attemptRec = (req) => {
+  const ip = clientIp(req);
+  let rec = attempts.get(ip);
+  if (!rec || now() > rec.reset) { rec = { n: 0, reset: now() + 15 * 60e3 }; attempts.set(ip, rec); }
+  return rec;
+};
 function throttle(req) {
-  const ip = req.socket.remoteAddress;
-  const rec = attempts.get(ip) || { n: 0, reset: now() + 15 * 60e3 };
-  if (now() > rec.reset) { rec.n = 0; rec.reset = now() + 15 * 60e3; }
-  if (++rec.n > 20) throw fail(429, 'Too many attempts. Try again in a few minutes.');
-  attempts.set(ip, rec);
+  if (attemptRec(req).n >= 20) throw fail(429, 'Too many failed attempts. Try again in a few minutes.');
 }
+const failedAttempt = (req) => { attemptRec(req).n++; };
 
 // ---------- API ----------
 const routes = [];
@@ -217,8 +225,8 @@ route('POST', '/api/register', async (ctx) => {
   throttle(ctx.req);
   const b = ctx.body;
   const invite = b.invite ? findInvite(b.invite) : null;
-  if (b.invite && !invite) throw fail(403, 'This invite link is not valid any more. Ask for a new one.');
-  if (!invite && !(FAMILY_CODE && safeEqual(String(b.code || ''), FAMILY_CODE))) throw fail(403, 'That family code is not right');
+  if (b.invite && !invite) { failedAttempt(ctx.req); throw fail(403, 'This invite link is not valid any more. Ask for a new one.'); }
+  if (!invite && !(FAMILY_CODE && safeEqual(String(b.code || ''), FAMILY_CODE))) { failedAttempt(ctx.req); throw fail(403, 'That family code is not right'); }
   const username = str(b.username, 30, 'Username', true);
   if (!/^[A-Za-z0-9_.-]+$/.test(username)) throw fail(400, 'Username can use letters, numbers, dot, dash and underscore');
   const display = str(b.displayName, 40, 'Name', true);
@@ -235,7 +243,7 @@ route('POST', '/api/login', async (ctx) => {
   throttle(ctx.req);
   const row = db.prepare('SELECT * FROM users WHERE username = ?').get(String(ctx.body.username || ''));
   const ok = row && checkPassword(String(ctx.body.password || ''), row.pass_hash);
-  if (!ok) throw fail(401, 'Username or password is wrong');
+  if (!ok) { failedAttempt(ctx.req); throw fail(401, 'Username or password is wrong'); }
   ctx.startSession(row.id, 200, { user: { id: row.id, username: row.username, display_name: row.display_name, is_admin: !!row.is_admin } });
 });
 
